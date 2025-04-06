@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Dashboard</title>
+</head>
+<body>
+  <h2>Save Password</h2>
+  <input id="website" placeholder="Website URL"><br>
+  <input id="password" type="password" placeholder="Password">
+  <input type="checkbox" onclick="toggle()"> Show Password<br>
+  <button onclick="generate()">Generate Strong Password</button><br>
+  <button onclick="save()">Save</button>
+  <p id="msg"></p>
+
+  <h3>Saved Passwords</h3>
+  <ul id="list"></ul>
+
+  <script>
+    const userId = sessionStorage.getItem("userId");
+
+    function toggle() {
+      const pass = document.getElementById("password");
+      pass.type = pass.type === "password" ? "text" : "password";
+    }
+
+    function generate() {
+      const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
+      let pass = "";
+      for (let i = 0; i < 16; i++) {
+        pass += charset[Math.floor(Math.random() * charset.length)];
+      }
+      document.getElementById("password").value = pass;
+    }
+
+    async function save() {
+      const website = document.getElementById("website").value;
+      const password = document.getElementById("password").value;
+
+      const res = await fetch("/save-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, website, encryptedPassword: password })
+      });
+
+      document.getElementById("msg").innerText = await res.text();
+      loadPasswords();
+    }
+
+    async function loadPasswords() {
+      const res = await fetch("/get-passwords/" + userId);
+      const data = await res.json();
+      const list = document.getElementById("list");
+      list.innerHTML = "";
+      data.forEach(row => {
+        const li = document.createElement("li");
+        li.textContent = `${row.website} → ${row.encrypted_password}`;
+        list.appendChild(li);
+      });
+    }
+
+    loadPasswords();
+  </script>
+</body>
+</html>

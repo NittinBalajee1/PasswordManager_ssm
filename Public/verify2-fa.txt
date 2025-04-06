@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>2FA Verification</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 40px;
+      max-width: 400px;
+      margin: auto;
+    }
+    h1 {
+      text-align: center;
+    }
+    input, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      font-size: 16px;
+    }
+    .message {
+      margin-top: 20px;
+      font-weight: bold;
+      text-align: center;
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <h1>Verify 2FA Code</h1>
+
+  <input type="text" id="code" placeholder="Enter 6-digit code" maxlength="6" required />
+  <button onclick="verifyCode()">Verify</button>
+
+  <div class="message" id="message"></div>
+
+  <script>
+    const email = localStorage.getItem("pendingEmail");
+
+    if (!email) {
+      document.getElementById("message").innerText = "No login session found.";
+    }
+
+    async function verifyCode() {
+      const code = document.getElementById("code").value.trim();
+
+      if (code.length !== 6 || isNaN(code)) {
+        document.getElementById("message").innerText = "Please enter a valid 6-digit code.";
+        return;
+      }
+
+      const res = await fetch("/verify-2fa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, code })
+      });
+
+      const msg = await res.text();
+      if (res.ok) {
+        localStorage.setItem("userEmail", email);
+        localStorage.removeItem("pendingEmail");
+        window.location.href = "/dashboard.html";
+      } else {
+        document.getElementById("message").innerText = msg;
+      }
+    }
+  </script>
+</body>
+</html>

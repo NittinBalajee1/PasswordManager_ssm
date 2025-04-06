@@ -1,0 +1,41 @@
+<h2>Store Password</h2>
+<form onsubmit="store(event)">
+  <input placeholder="Website (e.g., google.com)" id="site" /><br>
+  <input placeholder="Password" id="password" /><br>
+  <button>Save</button>
+</form>
+<div id="msg"></div>
+<h3>Saved Passwords</h3>
+<ul id="list"></ul>
+
+<script>
+  async function store(e) {
+    e.preventDefault();
+    const userId = localStorage.getItem("userId");
+    const site = document.getElementById("site").value;
+    const password = document.getElementById("password").value;
+    const res = await fetch("/store-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, site, password })
+    });
+    const data = await res.json();
+    document.getElementById("msg").innerText = data.message;
+    loadPasswords();
+  }
+
+  async function loadPasswords() {
+    const userId = localStorage.getItem("userId");
+    const res = await fetch(`/passwords/${userId}`);
+    const data = await res.json();
+    const list = document.getElementById("list");
+    list.innerHTML = "";
+    data.forEach(p => {
+      const li = document.createElement("li");
+      li.innerText = `${p.site}: ${p.encryptedPassword.slice(0, 10)}...`;
+      list.appendChild(li);
+    });
+  }
+
+  loadPasswords();
+</script>
