@@ -5,6 +5,9 @@ const bcrypt = require("bcryptjs");
 const validator = require("validator");
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
+const speakeasy = require("speakeasy");
+const qrcode = require("qrcode");
+const fs = require("fs");
 
 const app = express();
 app.use(cors());
@@ -29,6 +32,12 @@ db.serialize(() => {
     FOREIGN KEY(user_id) REFERENCES users(id)
   )`);
 });
+
+const usersFile = path.join(__dirname, "users.json");
+const loadUsers = () =>
+  fs.existsSync(usersFile) ? JSON.parse(fs.readFileSync(usersFile)) : {};
+const saveUsers = (users) =>
+  fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
 
 // Register
 app.post("/register", (req, res) => {
@@ -59,8 +68,45 @@ app.post("/login", (req, res) => {
     if (!user || !bcrypt.compareSync(password, user.password)) {
       return res.status(401).send("Invalid credentials.");
     }
-    res.send({ message: "Login successful!", userId: user.id });
+
+    const users = loadUsers();
+    if (!users[user.email]) {
+      const secret = speakeasy.generateSecret({
+        name: `PasswordManager (${user.email})`,
+      });
+      users[user.email] = { secret: secret.base32 };
+      saveUsers(users);
+      qrcode.toDataURL(secret.otpauth_url, (err, data_url) => {
+        res.send({ step: "setup-2fa", qr: data_url, email: user.email });
+      });
+    } else {
+      res.send({ step: "verify-2fa", email: user.email, userId: user.id });
+    }
   });
+});
+
+// Verify 2FA
+app.post("/verify-2fa", (req, res) => {
+  const { email, token } = req.body;
+  const users = loadUsers();
+  const user = users[email];
+
+  if (!user) return res.status(404).send("2FA not setup for this user.");
+
+  const verified = speakeasy.totp.verify({
+    secret: user.secret,
+    encoding: "base32",
+    token,
+    window: 1,
+  });
+
+  if (verified) {
+    db.get(`SELECT id FROM users WHERE email = ?`, [email], (err, row) => {
+      res.send({ verified: true, userId: row.id });
+    });
+  } else {
+    res.send({ verified: false });
+  }
 });
 
 // Save password
