@@ -18,6 +18,11 @@
   <script>
     const userId = sessionStorage.getItem("userId");
 
+    if (!userId) {
+      alert("Not authenticated.");
+      window.location.href = "/login.html";
+    }
+
     function toggle() {
       const pass = document.getElementById("password");
       pass.type = pass.type === "password" ? "text" : "password";

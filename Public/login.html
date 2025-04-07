@@ -28,11 +28,11 @@
       });
 
       const data = await res.json();
-      document.getElementById("msg").innerText = data.message || data;
+      document.getElementById("msg").innerText = data.message || "";
 
-      if (res.ok) {
-        sessionStorage.setItem("userId", data.userId);
-        window.location.href = "/dashboard.html";
+      if (res.ok && (data.step === "setup-2fa" || data.step === "verify-2fa")) {
+        sessionStorage.setItem("authInfo", JSON.stringify(data));
+        window.location.href = "/verify-2fa.html";
       }
     }
   </script>

@@ -1,23 +1,42 @@
 <!DOCTYPE html>
 <html>
-<head><title>2FA Verify</title></head>
+<head>
+  <title>Verify 2FA</title>
+</head>
 <body>
-  <h2>Enter 2FA Code</h2>
-  <input id="code" placeholder="6-digit code"><br>
+  <h2>Verify 2FA</h2>
+  <div id="qr-section" style="display:none;">
+    <p>Scan this QR code with Google Authenticator:</p>
+    <img id="qrcode" />
+  </div>
+  <input id="token" placeholder="Enter the 6-digit code"><br>
   <button onclick="verify()">Verify</button>
+  <p id="msg"></p>
+
   <script>
-    const email = localStorage.getItem("pendingEmail");
-    function verify() {
-      fetch("/verify-2fa", {
+    const data = sessionStorage.getItem("authInfo") && JSON.parse(sessionStorage.getItem("authInfo"));
+    if (data && data.qr) {
+      document.getElementById("qrcode").src = data.qr;
+      document.getElementById("qr-section").style.display = "block";
+    }
+
+    async function verify() {
+      const token = document.getElementById("token").value;
+      const email = data.email;
+
+      const res = await fetch("/verify-2fa", {
         method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ email, code: document.getElementById("code").value })
-      }).then(res => {
-        if (res.ok) {
-          localStorage.setItem("userEmail", email);
-          location.href = "/dashboard.html";
-        }
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, token })
       });
+
+      const result = await res.json();
+      if (result.verified) {
+        sessionStorage.setItem("userId", result.userId);
+        window.location.href = "/dashboard.html";
+      } else {
+        document.getElementById("msg").innerText = "Invalid code";
+      }
     }
   </script>
 </body>
