@@ -1,28 +1,24 @@
 const sqlite3 = require("sqlite3").verbose();
-const db = new sqlite3.Database("./passwords.db");
+const db = new sqlite3.Database("db.sqlite");
 
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE,
       email TEXT UNIQUE,
       phone TEXT,
-      passwordHash TEXT
-    );
+      password TEXT
+    )
   `);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS passwords (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      userId INTEGER,
-      site TEXT,
-      encryptedPassword TEXT,
-      rsaEncryptedKey TEXT,
-      iv TEXT,
-      passwordHash TEXT,
-      FOREIGN KEY(userId) REFERENCES users(id)
-    );
+      user_id INTEGER,
+      website TEXT,
+      encrypted_password TEXT,
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    )
   `);
 });
 
