@@ -1,3 +1,4 @@
+// server.js
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
@@ -8,6 +9,7 @@ const path = require("path");
 const speakeasy = require("speakeasy");
 const qrcode = require("qrcode");
 const fs = require("fs");
+const crypto = require("crypto");
 
 const app = express();
 app.use(cors());
@@ -16,6 +18,12 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const db = new sqlite3.Database("db.sqlite");
 
+// AES key setup
+const privateKey = fs.readFileSync("private.pem", "utf8"); // RSA Private Key
+const encryptedAESKey = fs.readFileSync("aes_key.enc"); // RSA encrypted AES key
+const aesKey = crypto.privateDecrypt(privateKey, encryptedAESKey); // Decrypted AES key
+
+// DB Setup
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,7 +50,6 @@ const saveUsers = (users) =>
 // Register
 app.post("/register", (req, res) => {
   const { email, phone, password } = req.body;
-
   if (!validator.isEmail(email)) return res.status(400).send("Invalid email.");
   if (!validator.isMobilePhone(phone))
     return res.status(400).send("Invalid phone.");
@@ -65,9 +72,8 @@ app.post("/register", (req, res) => {
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
   db.get(`SELECT * FROM users WHERE email = ?`, [email], (err, user) => {
-    if (!user || !bcrypt.compareSync(password, user.password)) {
+    if (!user || !bcrypt.compareSync(password, user.password))
       return res.status(401).send("Invalid credentials.");
-    }
 
     const users = loadUsers();
     if (!users[user.email]) {
@@ -102,14 +108,18 @@ app.post("/verify-2fa", (req, res) => {
 
   if (verified) {
     db.get(`SELECT id FROM users WHERE email = ?`, [email], (err, row) => {
-      res.send({ verified: true, userId: row.id });
+      res.send({
+        verified: true,
+        userId: row.id,
+        aesKey: aesKey.toString("base64"),
+      });
     });
   } else {
     res.send({ verified: false });
   }
 });
 
-// Save password
+// Save encrypted password
 app.post("/save-password", (req, res) => {
   const { userId, website, encryptedPassword } = req.body;
   if (!validator.isURL(website))
@@ -140,7 +150,7 @@ app.post("/save-password", (req, res) => {
   );
 });
 
-// Get passwords
+// Get encrypted passwords
 app.get("/get-passwords/:userId", (req, res) => {
   db.all(
     `SELECT website, encrypted_password FROM passwords WHERE user_id = ?`,
@@ -151,6 +161,59 @@ app.get("/get-passwords/:userId", (req, res) => {
   );
 });
 
-app.listen(3000, () => {
-  console.log("Server running at http://localhost:3000");
+// Forgot password flow (with 2FA)
+app.post("/request-reset", (req, res) => {
+  const { email } = req.body;
+  db.get(`SELECT * FROM users WHERE email = ?`, [email], (err, user) => {
+    if (!user) return res.status(404).send("User not found.");
+    const users = loadUsers();
+    if (!users[email])
+      return res.status(400).send("2FA not setup for this user.");
+    res.send("2FA token required. Enter it to reset your password.");
+  });
 });
+
+app.post("/reset-password", (req, res) => {
+  const { email, token, newPassword } = req.body;
+  const users = loadUsers();
+  const user2FA = users[email];
+  if (!user2FA) return res.status(400).send("2FA not setup.");
+
+  const verified = speakeasy.totp.verify({
+    secret: user2FA.secret,
+    encoding: "base32",
+    token,
+    window: 1,
+  });
+
+  if (!verified) return res.status(403).send("Invalid or expired 2FA token.");
+  const passRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{12,}$/;
+  if (!passRegex.test(newPassword))
+    return res.status(400).send("Password not strong enough.");
+
+  const hashedPassword = bcrypt.hashSync(newPassword, 10);
+  db.run(
+    `UPDATE users SET password = ? WHERE email = ?`,
+    [hashedPassword, email],
+    function (err) {
+      if (err) return res.status(500).send("Failed to reset password.");
+      res.send("Password has been reset.");
+    }
+  );
+});
+
+// Password generator
+app.get("/generate-password", (req, res) => {
+  const length = 16;
+  const charset =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
+  let password = "";
+  for (let i = 0; i < length; i++) {
+    password += charset.charAt(Math.floor(Math.random() * charset.length));
+  }
+  res.send({ password });
+});
+
+app.listen(3000, () =>
+  console.log("\u2705 Server running on http://localhost:3000")
+);
