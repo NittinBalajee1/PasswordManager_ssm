@@ -1,9 +1,44 @@
 <!DOCTYPE html>
 <html>
-<head><title>Password Manager</title></head>
+<head>
+  <title>Login</title>
+</head>
 <body>
-  <h2>Welcome</h2>
-  <a href="register.html">Register</a><br>
-  <a href="login.html">Login</a>
+  <h2>Login</h2>
+  <input id="email" placeholder="Email"><br>
+  <input id="password" type="password" placeholder="Password">
+  <input type="checkbox" onclick="toggle()"> Show Password<br>
+  <button onclick="login()">Login</button><br><br>
+
+  <!-- 🔐 Added Register link -->
+  <a href="register.html">Don't have an account? Register</a>
+
+  <p id="msg"></p>
+
+  <script>
+    function toggle() {
+      const pass = document.getElementById("password");
+      pass.type = pass.type === "password" ? "text" : "password";
+    }
+
+    async function login() {
+      const res = await fetch("/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: document.getElementById("email").value,
+          password: document.getElementById("password").value
+        })
+      });
+
+      const data = await res.json();
+      document.getElementById("msg").innerText = data.message || "";
+
+      if (res.ok && (data.step === "setup-2fa" || data.step === "verify-2fa")) {
+        sessionStorage.setItem("authInfo", JSON.stringify(data));
+        window.location.href = "/verify-2fa.html";
+      }
+    }
+  </script>
 </body>
 </html>

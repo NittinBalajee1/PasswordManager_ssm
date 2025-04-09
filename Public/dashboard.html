@@ -1,69 +1,153 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Dashboard</title>
+  <meta charset="UTF-8">
+  <title>Password Manager Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f4f4; padding: 20px; }
+    h2 { color: #333; }
+    .container { max-width: 800px; margin: auto; background: #fff; padding: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    input, button { padding: 10px; margin: 5px 0; width: 100%; }
+    .entry { border-bottom: 1px solid #ddd; padding: 10px 0; }
+    .password { font-family: monospace; }
+    .flex-row { display: flex; gap: 10px; }
+    .flex-row input { flex: 1; }
+    .top-bar { display: flex; justify-content: space-between; align-items: center; }
+    .logout-btn { padding: 8px 16px; background: #e74c3c; color: white; border: none; cursor: pointer; }
+    .reveal-box { margin-top: 5px; font-weight: bold; font-size: 16px; word-break: break-word; }
+    .password-block { margin-top: 10px; }
+  </style>
 </head>
 <body>
-  <h2>Save Password</h2>
-  <input id="website" placeholder="Website URL"><br>
-  <input id="password" type="password" placeholder="Password">
-  <input type="checkbox" onclick="toggle()"> Show Password<br>
-  <button onclick="generate()">Generate Strong Password</button><br>
-  <button onclick="save()">Save</button>
-  <p id="msg"></p>
+  <div class="container">
+    <div class="top-bar">
+      <h2>Your Saved Passwords</h2>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
 
-  <h3>Saved Passwords</h3>
-  <ul id="list"></ul>
+    <div id="passwords"></div>
+
+    <h3>Add New Password</h3>
+    <div>
+      <input type="text" id="website" placeholder="Website URL">
+      <div class="flex-row">
+        <input type="text" id="newPassword" placeholder="Generated password">
+        <button onclick="generatePassword()">Generate</button>
+      </div>
+      <button onclick="savePassword()">Save</button>
+    </div>
+  </div>
 
   <script>
-    const userId = sessionStorage.getItem("userId");
+    const userId = localStorage.getItem("userId");
+    const aesKeyBase64 = localStorage.getItem("aesKey");
 
-    if (!userId) {
-      alert("Not authenticated.");
-      window.location.href = "/login.html";
+    async function getPasswords() {
+      const res = await fetch(`/get-passwords/${userId}`);
+      const data = await res.json();
+
+      const key = await crypto.subtle.importKey(
+        "raw",
+        Uint8Array.from(atob(aesKeyBase64), c => c.charCodeAt(0)),
+        { name: "AES-GCM" },
+        false,
+        ["decrypt"]
+      );
+
+      const container = document.getElementById("passwords");
+      container.innerHTML = "";
+
+      for (const entry of data) {
+        try {
+          const raw = atob(entry.encrypted_password);
+          const iv = new Uint8Array([...raw].slice(0, 12).map(c => c.charCodeAt(0)));
+          const tag = new Uint8Array([...raw].slice(12, 28).map(c => c.charCodeAt(0)));
+          const ciphertext = new Uint8Array([...raw].slice(28).map(c => c.charCodeAt(0)));
+
+          const decrypted = await crypto.subtle.decrypt({
+            name: "AES-GCM",
+            iv,
+            tagLength: 128
+          }, key, new Uint8Array([...ciphertext, ...tag]));
+
+          const password = new TextDecoder().decode(decrypted);
+
+          const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(password));
+          const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+          const div = document.createElement("div");
+          div.className = "entry";
+          div.innerHTML = `
+            <strong>${entry.website}</strong>
+            <div class="password-block">
+              Password: <span class="reveal reveal-box">****</span>
+              <button onclick="togglePassword(this, '${password.replace(/'/g, "&#39;")}')">Show/Hide</button>
+            </div>
+            <div class="password-block">
+              SHA-256 Hash:<br>
+              <div class="reveal-box" style="font-size: 14px;">${hashHex}</div>
+            </div>
+          `;
+          container.appendChild(div);
+        } catch (e) {
+          console.error("Decryption failed", e);
+        }
+      }
     }
 
-    function toggle() {
-      const pass = document.getElementById("password");
-      pass.type = pass.type === "password" ? "text" : "password";
+    function togglePassword(btn, password) {
+      const span = btn.parentElement.querySelector(".reveal");
+      span.textContent = span.textContent === "****" ? password : "****";
     }
 
-    function generate() {
+    function generatePassword() {
       const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
       let pass = "";
       for (let i = 0; i < 16; i++) {
         pass += charset[Math.floor(Math.random() * charset.length)];
       }
-      document.getElementById("password").value = pass;
+      document.getElementById("newPassword").value = pass;
     }
 
-    async function save() {
+    async function savePassword() {
       const website = document.getElementById("website").value;
-      const password = document.getElementById("password").value;
+      const password = document.getElementById("newPassword").value;
+      if (!website || !password) return alert("Enter both website and password");
 
-      const res = await fetch("/save-password", {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await crypto.subtle.importKey(
+        "raw",
+        Uint8Array.from(atob(aesKeyBase64), c => c.charCodeAt(0)),
+        { name: "AES-GCM" },
+        false,
+        ["encrypt"]
+      );
+      const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(password));
+
+      const encryptedBytes = new Uint8Array(encrypted);
+      const tag = encryptedBytes.slice(encryptedBytes.length - 16);
+      const ciphertext = encryptedBytes.slice(0, encryptedBytes.length - 16);
+
+      const combined = new Uint8Array([...iv, ...tag, ...ciphertext]);
+      const encryptedBase64 = btoa(String.fromCharCode(...combined));
+
+      await fetch("/save-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, website, encryptedPassword: password })
+        body: JSON.stringify({ userId, website, encryptedPassword: encryptedBase64 })
       });
 
-      document.getElementById("msg").innerText = await res.text();
-      loadPasswords();
+      document.getElementById("website").value = "";
+      document.getElementById("newPassword").value = "";
+      getPasswords();
     }
 
-    async function loadPasswords() {
-      const res = await fetch("/get-passwords/" + userId);
-      const data = await res.json();
-      const list = document.getElementById("list");
-      list.innerHTML = "";
-      data.forEach(row => {
-        const li = document.createElement("li");
-        li.textContent = `${row.website} → ${row.encrypted_password}`;
-        list.appendChild(li);
-      });
+    function logout() {
+      localStorage.clear();
+      window.location.href = "login.html";
     }
 
-    loadPasswords();
+    getPasswords();
   </script>
 </body>
 </html>

@@ -1,40 +1,83 @@
+<!-- public/login.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Login</title>
+  <meta charset="UTF-8">
+  <title>Login - Password Manager</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 30px; background: #f5f5f5; }
+    form, .box { background: white; padding: 20px; max-width: 400px; margin: auto; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    input, button { width: 100%; padding: 10px; margin: 10px 0; }
+    .hidden { display: none; }
+  </style>
 </head>
 <body>
-  <h2>Login</h2>
-  <input id="email" placeholder="Email"><br>
-  <input id="password" type="password" placeholder="Password">
-  <input type="checkbox" onclick="toggle()"> Show Password<br>
-  <button onclick="login()">Login</button>
-  <p id="msg"></p>
+  <form id="loginForm">
+    <h2>Login</h2>
+    <input type="email" placeholder="Email" required id="email">
+    <input type="password" placeholder="Password" required id="password">
+    <button type="submit">Login</button>
+    <p><a href="forgot.html">Forgot password?</a></p>
+  </form>
+
+  <div id="qrcodeBox" class="box hidden">
+    <h3>Scan QR Code with Google Authenticator</h3>
+    <img id="qrcode" />
+  </div>
+
+  <form id="verifyForm" class="hidden">
+    <h3>Enter 2FA Code</h3>
+    <input type="text" placeholder="6-digit code" required id="token">
+    <button type="submit">Verify</button>
+  </form>
 
   <script>
-    function toggle() {
-      const pass = document.getElementById("password");
-      pass.type = pass.type === "password" ? "text" : "password";
-    }
+    let emailGlobal = "", userIdGlobal = "";
 
-    async function login() {
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+
       const res = await fetch("/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: document.getElementById("email").value,
-          password: document.getElementById("password").value
-        })
+        body: JSON.stringify({ email, password })
       });
-
       const data = await res.json();
-      document.getElementById("msg").innerText = data.message || "";
 
-      if (res.ok && (data.step === "setup-2fa" || data.step === "verify-2fa")) {
-        sessionStorage.setItem("authInfo", JSON.stringify(data));
-        window.location.href = "/verify-2fa.html";
+      emailGlobal = data.email;
+      if (data.step === "setup-2fa") {
+        document.getElementById("qrcode").src = data.qr;
+        document.getElementById("qrcodeBox").classList.remove("hidden");
+        document.getElementById("verifyForm").classList.remove("hidden");
+      } else if (data.step === "verify-2fa") {
+        userIdGlobal = data.userId;
+        document.getElementById("verifyForm").classList.remove("hidden");
+      } else {
+        alert("Unexpected response.");
       }
-    }
+    });
+
+    document.getElementById("verifyForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const token = document.getElementById("token").value;
+
+      const res = await fetch("/verify-2fa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailGlobal, token })
+      });
+      const data = await res.json();
+
+      if (data.verified) {
+        localStorage.setItem("userId", data.userId);
+        localStorage.setItem("aesKey", data.aesKey);
+        window.location.href = "dashboard.html";
+      } else {
+        alert("2FA verification failed.");
+      }
+    });
   </script>
 </body>
 </html>
